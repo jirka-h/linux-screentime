@@ -1,0 +1,13 @@
+# Generated data — do not commit (may contain personal usage patterns)
+screentime-log.csv
+screentime-report.html
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo

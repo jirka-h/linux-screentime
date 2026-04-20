@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Screen Time Monitor</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&display=swap');
+
+  :root {
+    --bg: #0d0f14;
+    --surface: #151820;
+    --surface2: #1c2030;
+    --border: #252a3a;
+    --accent: #4fffb0;
+    --accent2: #ff6b6b;
+    --accent3: #d4b42a;
+    --text: #e8eaf0;
+    --grid: rgba(79,255,176,0.04);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    padding: 12px 24px;
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+
+  .header-left h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: clamp(1.6rem, 4vw, 2.4rem);
+    font-weight: 300;
+    letter-spacing: 0.02em;
+    line-height: 1;
+  }
+
+  .header-left h1 span { color: var(--accent); }
+  .header-left p { color: var(--text); font-size: 0.85rem; margin-top: 6px; font-family: 'JetBrains Mono', monospace; }
+
+  .load-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-end;
+  }
+
+  .load-section label {
+    font-size: 0.86rem;
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .file-btn {
+    background: var(--surface2);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    padding: 10px 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.86rem;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .file-btn:hover { background: var(--accent); color: var(--bg); }
+
+  #fileInput { display: none; }
+
+  /* Today card */
+  .today-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 28px 32px;
+    display: flex;
+    align-items: center;
+    gap: 40px;
+    position: relative;
+    overflow: hidden;
+  }
+  .today-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent), transparent);
+  }
+
+  .today-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.86rem;
+    color: var(--text);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    margin-bottom: 8px;
+  }
+
+  .today-time {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: clamp(2.5rem, 6vw, 4rem);
+    font-weight: 300;
+    letter-spacing: 0;
+    word-spacing: -0.2em;
+    color: var(--accent);
+    line-height: 1;
+  }
+
+  .today-date {
+    font-size: 0.9rem;
+    color: var(--text);
+    margin-top: 6px;
+  }
+
+  .today-sessions {
+    border-left: 1px solid var(--border);
+    padding-left: 40px;
+  }
+
+  .today-sessions .sess-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.86rem;
+    color: var(--text);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 12px;
+  }
+
+  .session-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 180px;
+    overflow-y: auto;
+  }
+
+  .session-item {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.86rem;
+  }
+
+  .session-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
+  }
+
+  .session-range { color: var(--text); }
+  .session-dur { color: var(--text); }
+
+  /* Grid */
+  .grid-2x2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 20px;
+  }
+  @media (max-width: 700px) { .grid-2x2 { grid-template-columns: 1fr; } }
+
+  /* Week rows */
+  .week-rows { display: flex; flex-direction: column; gap: 8px; }
+
+  .week-row { display: flex; flex-direction: column; gap: 4px; }
+
+  .week-meta {
+    display: flex;
+    justify-content: space-between;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.86rem;
+  }
+  .week-name { color: var(--text); }
+  .week-stats { color: var(--accent); }
+
+  .week-bar-bg {
+    height: 6px;
+    background: var(--surface2);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .week-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.8s cubic-bezier(.16,1,.3,1);
+  }
+
+  .week-detail {
+    display: flex;
+    gap: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.86rem;
+    color: var(--text);
+    flex-wrap: wrap;
+  }
+  .week-detail b { color: var(--accent); font-weight: 400; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+  }
+
+  .card-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.86rem;
+    color: var(--text);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* Bar chart */
+  .bar-chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+    height: 120px;
+  }
+
+  .bar-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    height: 100%;
+    justify-content: flex-end;
+  }
+
+  .bar {
+    width: 100%;
+    border-radius: 3px 3px 0 0;
+    transition: height 0.6s cubic-bezier(.16,1,.3,1);
+    position: relative;
+    cursor: pointer;
+  }
+  .bar:hover { filter: brightness(1.3); }
+
+  .bar-tooltip {
+    position: absolute;
+    top: -28px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 3px 7px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.86rem;
+    white-space: nowrap;
+    color: var(--text);
+    border-radius: 4px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .bar:hover .bar-tooltip { opacity: 1; }
+
+  .bar-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.86rem;
+    color: var(--text);
+    text-align: center;
+  }
+
+  /* Monthly stats */
+  .month-rows { display: flex; flex-direction: column; gap: 14px; }
+
+  .month-row { display: flex; flex-direction: column; gap: 6px; }
+
+  .month-detail {
+    display: flex;
+    gap: 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.86rem;
+    color: var(--text);
+    flex-wrap: wrap;
+  }
+  .month-detail b { color: var(--accent); font-weight: 400; }
+
+  .month-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.86rem;
+  }
+  .month-name { font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+  .month-stats { font-family: 'JetBrains Mono', monospace; font-size: 0.86rem; color: var(--text); }
+
+  .month-bar-bg {
+    height: 6px;
+    background: var(--surface2);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .month-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.8s cubic-bezier(.16,1,.3,1);
+  }
+
+  /* Status */
+  #status {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+  }
+
+  #status .hint {
+    margin-top: 16px;
+    font-size: 0.86rem;
+    color: var(--text);
+    border: 1px dashed var(--border);
+    display: inline-block;
+    padding: 12px 20px;
+    border-radius: 6px;
+  }
+  #status .hint code {
+    color: var(--accent);
+    background: rgba(79,255,176,0.08);
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+
+  .hidden { display: none !important; }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: var(--surface2); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <h1>Screen<span>Time</span></h1>
+    <p id="csvMeta" style="visibility:hidden">·</p>
+  </div>
+  <div class="load-section">
+    <label>Load CSV from tracker</label>
+    <button class="file-btn" onclick="document.getElementById('fileInput').click()">
+      📂 Open screentime CSV
+    </button>
+    <input type="file" id="fileInput" accept=".csv" onchange="handleFile(event)">
+  </div>
+</header>
+
+<div id="status">
+  No data loaded yet.<br>
+  <div class="hint">
+    Run on the PC you want to monitor:<br><br>
+    <code>bash screentime-tracker.sh --rebuild</code><br><br>
+    Then click <strong>Open screentime CSV</strong> above<br>
+    and select the generated <code>screentime-log.csv</code>.
+  </div>
+</div>
+
+<div id="dashboard" class="hidden">
+  <div class="grid-2x2">
+    <div class="card today-card">
+      <div>
+        <div class="today-label">Today's active time</div>
+        <div class="today-time" id="todayTime">0h 00m</div>
+        <div class="today-date" id="todayDate"></div>
+      </div>
+      <div class="today-sessions">
+        <div class="sess-label">Sessions today</div>
+        <div class="session-list" id="sessionList"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Last 7 days</div>
+      <div class="bar-chart" id="weekChart"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Complete weeks (Mon–Sun)</div>
+      <div class="week-rows" id="weekStats"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Monthly statistics</div>
+      <div class="month-rows" id="monthStats"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Utility ──────────────────────────────────────────────────────
+function fmtDur(secs) {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  return `${h}h ${String(m).padStart(2,'0')}m`;
+}
+
+function todayStr() {
+  return new Date().toISOString().slice(0,10);
+}
+
+function addDays(dateStr, n) {
+  const d = new Date(dateStr + 'T12:00:00');
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0,10);
+}
+
+function parseCSV(text) {
+  const lines = text.trim().split('\n');
+  const rows = [];
+  let hostname = '';
+  let collected = '';
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    // Metadata lines: # hostname:p1gen7  or  # collected:2026-04-19 14:32:00
+    if (line.startsWith('#')) {
+      const m = line.match(/^#\s*(\w+):\s*(.+)$/);
+      if (m && m[1] === 'hostname')  hostname  = m[2].trim();
+      if (m && m[1] === 'collected') collected = m[2].trim();
+      continue;
+    }
+    // Skip header row
+    if (line.startsWith('date,')) continue;
+    const parts = line.split(',');
+    if (parts.length < 4) continue;
+    const date = parts[0].trim();
+    const wake = parts[1].trim();
+    const dur  = parseInt(parts[parts.length - 1]) || 0;
+    if (date && wake && dur > 0) rows.push({ date, wake, dur });
+  }
+  return { rows, hostname, collected };
+}
+
+// Split sessions across midnight, return map of dateStr -> seconds
+function buildDayTotals(rows) {
+  const totals = {};
+  const sessionsByDay = {};
+
+  for (const r of rows) {
+    const wakeDt = new Date(`${r.date}T${r.wake}`);
+    if (isNaN(wakeDt)) continue;
+
+    // Compute sleep datetime as wake + duration (always reliable)
+    const sleepDt = new Date(wakeDt.getTime() + r.dur * 1000);
+
+    // Split across days using timestamps (ms), no object mutation
+    const wakeMs = wakeDt.getTime();
+    const sleepMs = sleepDt.getTime();
+
+    // Find the starting day (midnight of wake day)
+    const wakeMidnight = new Date(`${r.date}T00:00:00`).getTime();
+
+    // Iterate over days: day 0, 1, 2, ... until we pass sleepMs
+    for (let dayOffset = 0; dayOffset < 60; dayOffset++) {
+      const dayStartMs = wakeMidnight + dayOffset * 86400000;
+      const dayEndMs   = dayStartMs + 86400000;
+
+      if (dayStartMs >= sleepMs) break; // past the end of session
+
+      const segStart = Math.max(wakeMs, dayStartMs);
+      const segEnd   = Math.min(sleepMs, dayEndMs);
+      const secs = Math.round((segEnd - segStart) / 1000);
+
+      if (secs <= 0) continue;
+
+      // Get date string for this day
+      const dayStr = new Date(dayStartMs + 43200000).toISOString().slice(0, 10); // +12h to avoid DST edge
+
+      totals[dayStr] = (totals[dayStr] || 0) + secs;
+      if (!sessionsByDay[dayStr]) sessionsByDay[dayStr] = [];
+      sessionsByDay[dayStr].push({
+        wake:  new Date(segStart).toTimeString().slice(0, 8),
+        sleep: new Date(segEnd).toTimeString().slice(0, 8),
+        dur:   secs
+      });
+    }
+  }
+  return { totals, sessionsByDay };
+}
+
+// ── Render ────────────────────────────────────────────────────────
+function render({ rows, hostname, collected, generated }) {
+  const td = todayStr();
+  const { totals, sessionsByDay } = buildDayTotals(rows);
+
+  // Update header meta
+  const metaEl = document.getElementById('csvMeta');
+  const now = new Date();
+  const gen = generated || `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${now.toTimeString().slice(0,8)}`;
+  const parts = [];
+  if (hostname)  parts.push(hostname);
+  if (collected) parts.push(`<span style="color:var(--accent)">data collected</span> ${collected}`);
+  parts.push(`<span style="color:var(--accent)">report generated</span> ${gen}`);
+  metaEl.innerHTML = parts.join(' &middot; ');
+  metaEl.style.visibility = 'visible';
+
+  // Today
+  const todaySecs = totals[td] || 0;
+  document.getElementById('todayTime').textContent = fmtDur(todaySecs);
+  document.getElementById('todayDate').textContent = new Date(td + 'T12:00:00').toLocaleDateString('en-GB', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
+
+  const todaySess = sessionsByDay[td] || [];
+  const sessHtml = todaySess.length
+    ? todaySess.map(s => `
+        <div class="session-item">
+          <div class="session-dot"></div>
+          <span class="session-range">${s.wake} – ${s.sleep}</span>
+          <span class="session-dur">${fmtDur(s.dur)}</span>
+        </div>`).join('')
+    : '<span style="color:var(--text);font-size:0.86rem;font-family:\'JetBrains Mono\',monospace">No sessions yet today</span>';
+  document.getElementById('sessionList').innerHTML = sessHtml;
+
+  // Week chart
+  const weekDates = Array.from({length:7}, (_,i) => addDays(td, i-6));
+  const weekSecs = weekDates.map(d => totals[d] || 0);
+  const maxWeek = Math.max(...weekSecs, 1);
+
+  const weekHtml = weekDates.map((d, i) => {
+    const secs = weekSecs[i];
+    const pct = Math.max((secs / maxWeek) * 100, secs > 0 ? 4 : 1);
+    const isToday = d === td;
+    const isSunday = new Date(d+'T12:00:00').getDay() === 0;
+    const label = isToday ? 'today' : new Date(d+'T12:00:00').toLocaleDateString('en-GB',{weekday:'short'}).slice(0,2);
+    const color = isToday ? 'var(--accent)' : isSunday ? 'var(--accent2)' : 'var(--accent3)';
+    return `
+      <div class="bar-wrap">
+        <div class="bar" style="height:${pct}%;background:${color};opacity:${secs>0?1:0.15}">
+          <div class="bar-tooltip">${fmtDur(secs)}</div>
+        </div>
+        <div class="bar-label" style="color:${isToday?'var(--accent)':'var(--text)'}">${label}</div>
+      </div>`;
+  }).join('');
+  document.getElementById('weekChart').innerHTML = weekHtml;
+
+  // Complete weeks (Mon–Sun)
+  const tdObj = new Date(td + 'T12:00:00');
+  let cutoffM = tdObj.getMonth() - 2;
+  let cutoffY = tdObj.getFullYear();
+  if (cutoffM < 1) { cutoffM += 12; cutoffY--; }
+  const cutoff = `${cutoffY}-${String(cutoffM).padStart(2,'0')}-01`;
+  let lastSunday = new Date(tdObj);
+  lastSunday.setDate(lastSunday.getDate() - ((tdObj.getDay() + 1) % 7 || 7));
+  if (tdObj.getDay() === 0) lastSunday.setDate(lastSunday.getDate() - 7);
+
+  const weeks = [];
+  let wEnd = new Date(lastSunday);
+  while (true) {
+    const wStart = new Date(wEnd);
+    wStart.setDate(wStart.getDate() - 6);
+    if (wStart < new Date(cutoff + 'T00:00:00')) break;
+    const wStartStr = wStart.toISOString().slice(0,10);
+    const wEndStr = wEnd.toISOString().slice(0,10);
+    let wTotal = 0;
+    const daySecs = [];
+    for (let di = 0; di < 7; di++) {
+      const dd = new Date(wStart);
+      dd.setDate(dd.getDate() + di);
+      const ds = dd.toISOString().slice(0,10);
+      const s = totals[ds] || 0;
+      wTotal += s;
+      daySecs.push(s);
+    }
+    const activeSecs = daySecs.filter(s => s > 0).sort((a,b) => a-b);
+    const ac = activeSecs.length;
+    const avg = Math.round(wTotal / Math.max(ac, 1));
+    const mn = ac ? activeSecs[0] : 0;
+    const mx = ac ? activeSecs[ac-1] : 0;
+    const mid = Math.floor(ac / 2);
+    const median = ac % 2 ? activeSecs[mid] : ac ? Math.round((activeSecs[mid-1] + activeSecs[mid]) / 2) : 0;
+    weeks.push({ wStart, wEnd: new Date(wEnd), wTotal, ac, avg, mn, mx, median });
+    const prev = new Date(wStart);
+    prev.setDate(prev.getDate() - 1);
+    wEnd = prev;
+  }
+
+  const weekTotals = weeks.map(w => w.wTotal);
+  const ranked = [...new Set(weekTotals)].sort((a,b) => a-b);
+  const bot3 = new Set(ranked.slice(0, 3));
+  const top3 = new Set(ranked.slice(-3));
+  const maxWeekTotal = Math.max(...weekTotals, 1);
+
+  const weekStatsHtml = weeks.map(w => {
+    const label = `${w.wStart.getDate()}.${w.wStart.getMonth()+1}. – ${w.wEnd.getDate()}.${w.wEnd.getMonth()+1}.`;
+    const pct = (w.wTotal / maxWeekTotal) * 100;
+    const color = top3.has(w.wTotal) ? 'var(--accent2)' : bot3.has(w.wTotal) ? 'var(--accent)' : 'var(--accent3)';
+    return `
+      <div class="week-row">
+        <div class="week-meta">
+          <span class="week-name">${label}</span>
+          <span class="week-stats">${w.ac}/7 days</span>
+        </div>
+        <div class="week-bar-bg">
+          <div class="week-bar-fill" style="width:${pct}%;background:${color}"></div>
+        </div>
+        <div class="week-detail">
+          <span>total <b>${fmtDur(w.wTotal)}</b></span>
+          <span>avg <b>${fmtDur(w.avg)}</b></span>
+          <span>min <b>${fmtDur(w.mn)}</b></span>
+          <span>med <b>${fmtDur(w.median)}</b></span>
+          <span>max <b>${fmtDur(w.mx)}</b></span>
+        </div>
+      </div>`;
+  }).join('');
+  document.getElementById('weekStats').innerHTML = weekStatsHtml || '<span style="color:var(--text);font-size:0.75rem">No complete weeks yet</span>';
+
+  // Monthly stats (last 3 months)
+  const monthMap = {};
+  for (const [d, secs] of Object.entries(totals)) {
+    if (d < cutoff) continue;
+    const ym = d.slice(0,7);
+    if (!monthMap[ym]) monthMap[ym] = { total: 0, activeDays: [] };
+    monthMap[ym].total += secs;
+    monthMap[ym].activeDays.push(secs);
+  }
+  const ymKeys = Object.keys(monthMap).sort().reverse();
+  const maxMonth = Math.max(...ymKeys.map(k => monthMap[k].total), 1);
+  const monthTotals = ymKeys.map(k => monthMap[k].total);
+  const bestMonth = Math.min(...monthTotals);
+  const worstMonth = Math.max(...monthTotals);
+  const monthHtml = ymKeys.map((ym, i) => {
+    const {total, activeDays} = monthMap[ym];
+    const [y, m] = ym.split('-').map(Number);
+    const monthStart  = new Date(y, m-1, 1);
+    const monthEnd    = new Date(y, m, 0);
+    const windowStart = new Date(Math.max(monthStart, new Date(cutoff + 'T00:00:00')));
+    const windowEnd   = new Date(Math.min(monthEnd,   new Date(td    + 'T00:00:00')));
+    const daysInWindow = Math.round((windowEnd - windowStart) / 86400000) + 1;
+    const sorted = [...activeDays].sort((a,b) => a-b);
+    const n = sorted.length;
+    const avg = Math.round(total / Math.max(n, 1));
+    const pct = (total / maxMonth) * 100;
+    const name = new Date(y, m-1, 1).toLocaleDateString('en-GB', {month:'long', year:'numeric'});
+    const color = total === worstMonth ? 'var(--accent2)' : total === bestMonth ? 'var(--accent)' : 'var(--accent3)';
+    const mn  = n ? sorted[0] : 0;
+    const mx  = n ? sorted[n-1] : 0;
+    const mid = Math.floor(n / 2);
+    const median = n % 2 ? sorted[mid] : Math.round((sorted[mid-1] + sorted[mid]) / 2);
+    return `
+      <div class="month-row">
+        <div class="month-meta">
+          <span class="month-name">${name}</span>
+          <span class="month-stats" style="color:var(--accent)">${n}/${daysInWindow} days</span>
+        </div>
+        <div class="month-bar-bg">
+          <div class="month-bar-fill" style="width:${pct}%;background:${color}"></div>
+        </div>
+        <div class="month-detail">
+          <span>total <b>${fmtDur(total)}</b></span>
+          <span>avg <b>${fmtDur(avg)}</b></span>
+          <span>min <b>${fmtDur(mn)}</b></span>
+          <span>med <b>${fmtDur(median)}</b></span>
+          <span>max <b>${fmtDur(mx)}</b></span>
+        </div>
+      </div>`;
+  }).join('');
+  document.getElementById('monthStats').innerHTML = monthHtml || '<span style="color:var(--text);font-size:0.8rem">No data for past 3 months</span>';
+
+  document.getElementById('status').classList.add('hidden');
+  document.getElementById('dashboard').classList.remove('hidden');
+}
+
+// ── Inline data (injected by screentime-tracker.sh --rebuild) ────
+const INLINE_DATA = /*__INLINE_DATA__*/{"rows": [{"date": "2026-01-01", "wake": "08:14:08", "dur": 14552}, {"date": "2026-01-01", "wake": "12:44:40", "dur": 13699}, {"date": "2026-01-01", "wake": "18:21:59", "dur": 11758}, {"date": "2026-01-02", "wake": "07:13:14", "dur": 7825}, {"date": "2026-01-02", "wake": "10:55:39", "dur": 7287}, {"date": "2026-01-03", "wake": "10:14:28", "dur": 6245}, {"date": "2026-01-03", "wake": "12:48:33", "dur": 6943}, {"date": "2026-01-03", "wake": "14:59:16", "dur": 5979}, {"date": "2026-01-03", "wake": "18:36:55", "dur": 3364}, {"date": "2026-01-04", "wake": "08:13:48", "dur": 5036}, {"date": "2026-01-04", "wake": "10:05:44", "dur": 4248}, {"date": "2026-01-04", "wake": "12:19:32", "dur": 7090}, {"date": "2026-01-05", "wake": "07:46:29", "dur": 15474}, {"date": "2026-01-05", "wake": "12:34:23", "dur": 14630}, {"date": "2026-01-05", "wake": "17:03:13", "dur": 15131}, {"date": "2026-01-06", "wake": "08:45:04", "dur": 15020}, {"date": "2026-01-06", "wake": "14:34:24", "dur": 16572}, {"date": "2026-01-06", "wake": "21:03:36", "dur": 18307}, {"date": "2026-01-07", "wake": "09:29:40", "dur": 6633}, {"date": "2026-01-07", "wake": "12:21:13", "dur": 3076}, {"date": "2026-01-07", "wake": "14:14:29", "dur": 5344}, {"date": "2026-01-08", "wake": "07:38:40", "dur": 9893}, {"date": "2026-01-08", "wake": "11:46:33", "dur": 12546}, {"date": "2026-01-08", "wake": "16:01:39", "dur": 9636}, {"date": "2026-01-08", "wake": "19:56:15", "dur": 11899}, {"date": "2026-01-09", "wake": "09:53:49", "dur": 5530}, {"date": "2026-01-09", "wake": "11:47:59", "dur": 2831}, {"date": "2026-01-09", "wake": "14:35:10", "dur": 2456}, {"date": "2026-01-09", "wake": "17:14:06", "dur": 5794}, {"date": "2026-01-10", "wake": "09:13:41", "dur": 6186}, {"date": "2026-01-10", "wake": "12:01:47", "dur": 5698}, {"date": "2026-01-11", "wake": "08:47:35", "dur": 7976}, {"date": "2026-01-11", "wake": "11:48:31", "dur": 7163}, {"date": "2026-01-12", "wake": "08:08:32", "dur": 10990}, {"date": "2026-01-12", "wake": "11:37:42", "dur": 11954}, {"date": "2026-01-12", "wake": "15:17:56", "dur": 9365}, {"date": "2026-01-13", "wake": "07:24:24", "dur": 14713}, {"date": "2026-01-13", "wake": "12:43:37", "dur": 14121}, {"date": "2026-01-13", "wake": "17:25:58", "dur": 13387}, {"date": "2026-01-14", "wake": "09:49:41", "dur": 9962}, {"date": "2026-01-14", "wake": "13:04:43", "dur": 9906}, {"date": "2026-01-14", "wake": "16:59:49", "dur": 9651}, {"date": "2026-01-14", "wake": "20:53:40", "dur": 11957}, {"date": "2026-01-15", "wake": "07:55:40", "dur": 21379}, {"date": "2026-01-15", "wake": "15:27:59", "dur": 22536}, {"date": "2026-01-16", "wake": "07:38:20", "dur": 15415}, {"date": "2026-01-16", "wake": "12:12:15", "dur": 15014}, {"date": "2026-01-17", "wake": "08:03:15", "dur": 10194}, {"date": "2026-01-17", "wake": "12:20:09", "dur": 6023}, {"date": "2026-01-17", "wake": "14:25:32", "dur": 8979}, {"date": "2026-01-18", "wake": "08:08:42", "dur": 3129}, {"date": "2026-01-18", "wake": "10:25:51", "dur": 1810}, {"date": "2026-01-18", "wake": "11:44:01", "dur": 3858}, {"date": "2026-01-18", "wake": "14:20:19", "dur": 3136}, {"date": "2026-01-19", "wake": "10:42:41", "dur": 14027}, {"date": "2026-01-19", "wake": "15:47:28", "dur": 14753}, {"date": "2026-01-19", "wake": "21:05:21", "dur": 14115}, {"date": "2026-01-20", "wake": "08:37:14", "dur": 13549}, {"date": "2026-01-20", "wake": "12:47:03", "dur": 17091}, {"date": "2026-01-21", "wake": "09:04:32", "dur": 8958}, {"date": "2026-01-21", "wake": "12:23:50", "dur": 10611}, {"date": "2026-01-22", "wake": "10:15:50", "dur": 4731}, {"date": "2026-01-22", "wake": "13:32:41", "dur": 4415}, {"date": "2026-01-22", "wake": "15:25:16", "dur": 3201}, {"date": "2026-01-22", "wake": "16:45:37", "dur": 6029}, {"date": "2026-01-23", "wake": "07:43:41", "dur": 11413}, {"date": "2026-01-23", "wake": "11:20:54", "dur": 8592}, {"date": "2026-01-23", "wake": "14:50:06", "dur": 11697}, {"date": "2026-01-24", "wake": "08:12:12", "dur": 12854}, {"date": "2026-01-24", "wake": "12:58:26", "dur": 12063}, {"date": "2026-01-25", "wake": "08:55:59", "dur": 3629}, {"date": "2026-01-25", "wake": "11:07:28", "dur": 7376}, {"date": "2026-01-25", "wake": "14:35:24", "dur": 4358}, {"date": "2026-01-26", "wake": "08:10:26", "dur": 7596}, {"date": "2026-01-26", "wake": "11:33:02", "dur": 7218}, {"date": "2026-01-27", "wake": "07:24:16", "dur": 8572}, {"date": "2026-01-27", "wake": "11:42:08", "dur": 6518}, {"date": "2026-01-27", "wake": "14:21:46", "dur": 6393}, {"date": "2026-01-28", "wake": "10:09:12", "dur": 11591}, {"date": "2026-01-28", "wake": "14:04:23", "dur": 10810}, {"date": "2026-01-28", "wake": "18:33:33", "dur": 14365}, {"date": "2026-01-28", "wake": "23:56:58", "dur": 11939}, {"date": "2026-01-29", "wake": "10:32:58", "dur": 6823}, {"date": "2026-01-29", "wake": "13:48:41", "dur": 3412}, {"date": "2026-01-29", "wake": "15:07:33", "dur": 5426}, {"date": "2026-01-29", "wake": "17:02:59", "dur": 4866}, {"date": "2026-01-30", "wake": "10:07:56", "dur": 20889}, {"date": "2026-01-30", "wake": "16:42:05", "dur": 19824}, {"date": "2026-01-31", "wake": "10:42:37", "dur": 10988}, {"date": "2026-01-31", "wake": "15:06:45", "dur": 9959}, {"date": "2026-02-01", "wake": "09:15:16", "dur": 3357}, {"date": "2026-02-01", "wake": "10:42:13", "dur": 4547}, {"date": "2026-02-01", "wake": "13:35:00", "dur": 2549}, {"date": "2026-02-01", "wake": "15:30:29", "dur": 3693}, {"date": "2026-02-02", "wake": "07:04:34", "dur": 6421}, {"date": "2026-02-02", "wake": "10:10:35", "dur": 6943}, {"date": "2026-02-02", "wake": "12:37:18", "dur": 7644}, {"date": "2026-02-02", "wake": "15:07:42", "dur": 8386}, {"date": "2026-02-03", "wake": "09:39:51", "dur": 8661}, {"date": "2026-02-03", "wake": "13:26:12", "dur": 5723}, {"date": "2026-02-03", "wake": "16:41:35", "dur": 9921}, {"date": "2026-02-03", "wake": "20:51:56", "dur": 6829}, {"date": "2026-02-04", "wake": "07:47:35", "dur": 13660}, {"date": "2026-02-04", "wake": "12:24:15", "dur": 15988}, {"date": "2026-02-05", "wake": "09:32:31", "dur": 4066}, {"date": "2026-02-05", "wake": "11:01:17", "dur": 3674}, {"date": "2026-02-05", "wake": "13:38:31", "dur": 5741}, {"date": "2026-02-05", "wake": "16:04:12", "dur": 5873}, {"date": "2026-02-06", "wake": "08:47:28", "dur": 14373}, {"date": "2026-02-06", "wake": "14:32:01", "dur": 13636}, {"date": "2026-02-06", "wake": "19:45:17", "dur": 13734}, {"date": "2026-02-08", "wake": "07:53:23", "dur": 11645}, {"date": "2026-02-08", "wake": "12:32:28", "dur": 10476}, {"date": "2026-02-09", "wake": "07:57:22", "dur": 9008}, {"date": "2026-02-09", "wake": "12:09:30", "dur": 9640}, {"date": "2026-02-09", "wake": "16:30:10", "dur": 11196}, {"date": "2026-02-10", "wake": "08:59:59", "dur": 7966}, {"date": "2026-02-10", "wake": "11:47:45", "dur": 10550}, {"date": "2026-02-10", "wake": "16:41:35", "dur": 7262}, {"date": "2026-02-10", "wake": "19:49:37", "dur": 9412}, {"date": "2026-02-11", "wake": "08:17:10", "dur": 10133}, {"date": "2026-02-11", "wake": "12:50:03", "dur": 6875}, {"date": "2026-02-11", "wake": "15:47:38", "dur": 10684}, {"date": "2026-02-11", "wake": "19:04:42", "dur": 7141}, {"date": "2026-02-12", "wake": "08:14:01", "dur": 11047}, {"date": "2026-02-12", "wake": "11:57:08", "dur": 9525}, {"date": "2026-02-12", "wake": "15:32:53", "dur": 9862}, {"date": "2026-02-13", "wake": "10:43:53", "dur": 7738}, {"date": "2026-02-13", "wake": "13:49:51", "dur": 5523}, {"date": "2026-02-13", "wake": "15:50:54", "dur": 9845}, {"date": "2026-02-13", "wake": "19:22:59", "dur": 6262}, {"date": "2026-02-14", "wake": "07:38:27", "dur": 7189}, {"date": "2026-02-14", "wake": "11:26:16", "dur": 7960}, {"date": "2026-02-15", "wake": "07:24:57", "dur": 5744}, {"date": "2026-02-15", "wake": "09:39:41", "dur": 4239}, {"date": "2026-02-15", "wake": "11:10:20", "dur": 6477}, {"date": "2026-02-15", "wake": "14:08:17", "dur": 4272}, {"date": "2026-02-16", "wake": "08:23:27", "dur": 10591}, {"date": "2026-02-16", "wake": "12:59:58", "dur": 12162}, {"date": "2026-02-16", "wake": "17:56:40", "dur": 12319}, {"date": "2026-02-16", "wake": "23:00:59", "dur": 13349}, {"date": "2026-02-17", "wake": "10:20:25", "dur": 8870}, {"date": "2026-02-17", "wake": "13:40:15", "dur": 7933}, {"date": "2026-02-17", "wake": "16:23:28", "dur": 6213}, {"date": "2026-02-17", "wake": "19:15:01", "dur": 8244}, {"date": "2026-02-18", "wake": "09:25:35", "dur": 12226}, {"date": "2026-02-18", "wake": "13:04:21", "dur": 9519}, {"date": "2026-02-18", "wake": "16:34:00", "dur": 9413}, {"date": "2026-02-18", "wake": "20:20:53", "dur": 11293}, {"date": "2026-02-19", "wake": "10:28:43", "dur": 10331}, {"date": "2026-02-19", "wake": "14:40:54", "dur": 11857}, {"date": "2026-02-19", "wake": "19:54:31", "dur": 11581}, {"date": "2026-02-20", "wake": "09:05:52", "dur": 8085}, {"date": "2026-02-20", "wake": "12:05:37", "dur": 7126}, {"date": "2026-02-20", "wake": "14:58:23", "dur": 5217}, {"date": "2026-02-21", "wake": "07:15:30", "dur": 7310}, {"date": "2026-02-21", "wake": "11:10:20", "dur": 5904}, {"date": "2026-02-22", "wake": "08:45:44", "dur": 5051}, {"date": "2026-02-22", "wake": "11:27:55", "dur": 5191}, {"date": "2026-02-22", "wake": "13:40:26", "dur": 4242}, {"date": "2026-02-22", "wake": "16:29:08", "dur": 6634}, {"date": "2026-02-23", "wake": "08:51:44", "dur": 17796}, {"date": "2026-02-23", "wake": "15:02:20", "dur": 17155}, {"date": "2026-02-24", "wake": "10:42:33", "dur": 15909}, {"date": "2026-02-24", "wake": "16:38:42", "dur": 14932}, {"date": "2026-02-25", "wake": "10:53:58", "dur": 12853}, {"date": "2026-02-25", "wake": "15:40:11", "dur": 11112}, {"date": "2026-02-25", "wake": "20:35:23", "dur": 14564}, {"date": "2026-02-26", "wake": "01:53:07", "dur": 11108}, {"date": "2026-02-26", "wake": "10:40:15", "dur": 13874}, {"date": "2026-02-26", "wake": "15:42:29", "dur": 13405}, {"date": "2026-02-26", "wake": "21:11:54", "dur": 16371}, {"date": "2026-02-27", "wake": "07:08:09", "dur": 6903}, {"date": "2026-02-27", "wake": "10:07:12", "dur": 9082}, {"date": "2026-02-27", "wake": "13:12:34", "dur": 8613}, {"date": "2026-02-27", "wake": "16:18:07", "dur": 6427}, {"date": "2026-02-28", "wake": "10:26:03", "dur": 3102}, {"date": "2026-02-28", "wake": "12:25:45", "dur": 4168}, {"date": "2026-02-28", "wake": "15:28:13", "dur": 5067}, {"date": "2026-02-28", "wake": "18:36:40", "dur": 3884}, {"date": "2026-03-01", "wake": "10:30:00", "dur": 5475}, {"date": "2026-03-01", "wake": "12:54:15", "dur": 7242}, {"date": "2026-03-01", "wake": "15:58:57", "dur": 7008}, {"date": "2026-03-01", "wake": "19:03:45", "dur": 3618}, {"date": "2026-03-02", "wake": "10:14:17", "dur": 24258}, {"date": "2026-03-02", "wake": "18:15:35", "dur": 24289}, {"date": "2026-03-03", "wake": "10:58:08", "dur": 23860}, {"date": "2026-03-03", "wake": "18:58:48", "dur": 22364}, {"date": "2026-03-04", "wake": "07:41:27", "dur": 23178}, {"date": "2026-03-04", "wake": "15:21:45", "dur": 25668}, {"date": "2026-03-05", "wake": "10:20:21", "dur": 16782}, {"date": "2026-03-05", "wake": "16:03:03", "dur": 14149}, {"date": "2026-03-06", "wake": "10:01:47", "dur": 18216}, {"date": "2026-03-06", "wake": "15:26:23", "dur": 17399}, {"date": "2026-03-07", "wake": "07:48:01", "dur": 2193}, {"date": "2026-03-07", "wake": "09:04:34", "dur": 4880}, {"date": "2026-03-07", "wake": "10:42:54", "dur": 3169}, {"date": "2026-03-07", "wake": "12:09:43", "dur": 1682}, {"date": "2026-03-08", "wake": "08:29:44", "dur": 10133}, {"date": "2026-03-08", "wake": "13:11:37", "dur": 11635}, {"date": "2026-03-09", "wake": "07:49:52", "dur": 11257}, {"date": "2026-03-09", "wake": "11:51:29", "dur": 11406}, {"date": "2026-03-09", "wake": "16:30:35", "dur": 11748}, {"date": "2026-03-09", "wake": "20:40:23", "dur": 15138}, {"date": "2026-03-10", "wake": "07:37:44", "dur": 24651}, {"date": "2026-03-10", "wake": "16:03:35", "dur": 21447}, {"date": "2026-03-11", "wake": "07:50:36", "dur": 12540}, {"date": "2026-03-11", "wake": "11:39:36", "dur": 10289}, {"date": "2026-03-11", "wake": "15:54:05", "dur": 10810}, {"date": "2026-03-11", "wake": "20:33:15", "dur": 10902}, {"date": "2026-03-12", "wake": "10:52:31", "dur": 15104}, {"date": "2026-03-12", "wake": "16:14:15", "dur": 17840}, {"date": "2026-03-13", "wake": "10:11:46", "dur": 23903}, {"date": "2026-03-13", "wake": "18:28:09", "dur": 23229}, {"date": "2026-03-14", "wake": "10:27:52", "dur": 7733}, {"date": "2026-03-14", "wake": "14:06:45", "dur": 5241}, {"date": "2026-03-14", "wake": "16:30:06", "dur": 6643}, {"date": "2026-03-15", "wake": "10:15:48", "dur": 4176}, {"date": "2026-03-15", "wake": "12:52:24", "dur": 4720}, {"date": "2026-03-15", "wake": "15:51:04", "dur": 3323}, {"date": "2026-03-16", "wake": "10:13:22", "dur": 15984}, {"date": "2026-03-16", "wake": "15:27:46", "dur": 13051}, {"date": "2026-03-17", "wake": "08:05:15", "dur": 23212}, {"date": "2026-03-17", "wake": "15:39:07", "dur": 20914}, {"date": "2026-03-18", "wake": "10:28:50", "dur": 12782}, {"date": "2026-03-18", "wake": "14:27:52", "dur": 14782}, {"date": "2026-03-18", "wake": "19:17:14", "dur": 15973}, {"date": "2026-03-19", "wake": "09:30:35", "dur": 11528}, {"date": "2026-03-19", "wake": "13:41:43", "dur": 10971}, {"date": "2026-03-19", "wake": "18:34:34", "dur": 11512}, {"date": "2026-03-19", "wake": "22:43:26", "dur": 10605}, {"date": "2026-03-20", "wake": "08:07:46", "dur": 9827}, {"date": "2026-03-20", "wake": "11:46:33", "dur": 10034}, {"date": "2026-03-20", "wake": "16:23:47", "dur": 12656}, {"date": "2026-03-21", "wake": "08:13:47", "dur": 11236}, {"date": "2026-03-21", "wake": "12:11:03", "dur": 10871}, {"date": "2026-03-22", "wake": "09:06:53", "dur": 4808}, {"date": "2026-03-22", "wake": "11:19:01", "dur": 5280}, {"date": "2026-03-22", "wake": "13:48:01", "dur": 5517}, {"date": "2026-03-22", "wake": "16:12:58", "dur": 7650}, {"date": "2026-03-23", "wake": "07:35:18", "dur": 17643}, {"date": "2026-03-23", "wake": "13:00:21", "dur": 15532}, {"date": "2026-03-24", "wake": "09:30:30", "dur": 10761}, {"date": "2026-03-24", "wake": "13:27:51", "dur": 10753}, {"date": "2026-03-25", "wake": "10:31:04", "dur": 7973}, {"date": "2026-03-25", "wake": "14:18:57", "dur": 6847}, {"date": "2026-03-26", "wake": "07:15:07", "dur": 14499}, {"date": "2026-03-26", "wake": "13:08:46", "dur": 13676}, {"date": "2026-03-26", "wake": "18:28:42", "dur": 13869}, {"date": "2026-03-27", "wake": "10:58:28", "dur": 13849}, {"date": "2026-03-27", "wake": "16:19:17", "dur": 14680}, {"date": "2026-03-27", "wake": "21:17:57", "dur": 14768}, {"date": "2026-03-28", "wake": "07:48:13", "dur": 5959}, {"date": "2026-03-28", "wake": "10:09:32", "dur": 4226}, {"date": "2026-03-28", "wake": "12:58:58", "dur": 3833}, {"date": "2026-03-28", "wake": "14:37:51", "dur": 6770}, {"date": "2026-03-29", "wake": "07:26:28", "dur": 7037}, {"date": "2026-03-29", "wake": "10:54:45", "dur": 4992}, {"date": "2026-03-30", "wake": "09:44:55", "dur": 7325}, {"date": "2026-03-30", "wake": "12:11:00", "dur": 8262}, {"date": "2026-03-30", "wake": "15:12:42", "dur": 6023}, {"date": "2026-03-30", "wake": "18:48:05", "dur": 7457}, {"date": "2026-03-31", "wake": "08:41:09", "dur": 16103}, {"date": "2026-03-31", "wake": "15:09:32", "dur": 17528}, {"date": "2026-04-01", "wake": "09:28:07", "dur": 7441}, {"date": "2026-04-01", "wake": "13:15:08", "dur": 6727}, {"date": "2026-04-01", "wake": "16:51:15", "dur": 7408}, {"date": "2026-04-01", "wake": "19:43:43", "dur": 7712}, {"date": "2026-04-02", "wake": "07:56:27", "dur": 5913}, {"date": "2026-04-02", "wake": "10:31:00", "dur": 4975}, {"date": "2026-04-02", "wake": "12:40:55", "dur": 2272}, {"date": "2026-04-02", "wake": "13:44:47", "dur": 5663}, {"date": "2026-04-03", "wake": "09:36:02", "dur": 25837}, {"date": "2026-04-03", "wake": "18:37:39", "dur": 23187}, {"date": "2026-04-04", "wake": "09:11:37", "dur": 7143}, {"date": "2026-04-04", "wake": "12:46:40", "dur": 8700}, {"date": "2026-04-04", "wake": "16:28:40", "dur": 5631}, {"date": "2026-04-05", "wake": "09:42:06", "dur": 7543}, {"date": "2026-04-05", "wake": "12:22:49", "dur": 4523}, {"date": "2026-04-05", "wake": "14:45:12", "dur": 5424}, {"date": "2026-04-06", "wake": "10:05:20", "dur": 22313}, {"date": "2026-04-06", "wake": "17:13:13", "dur": 23848}, {"date": "2026-04-07", "wake": "10:26:03", "dur": 4150}, {"date": "2026-04-07", "wake": "12:56:13", "dur": 5207}, {"date": "2026-04-07", "wake": "15:57:00", "dur": 6983}, {"date": "2026-04-07", "wake": "19:11:23", "dur": 4388}, {"date": "2026-04-08", "wake": "08:59:18", "dur": 6001}, {"date": "2026-04-08", "wake": "12:23:19", "dur": 6195}, {"date": "2026-04-08", "wake": "14:36:34", "dur": 5825}, {"date": "2026-04-09", "wake": "09:35:00", "dur": 22222}, {"date": "2026-04-09", "wake": "16:52:22", "dur": 21298}, {"date": "2026-04-10", "wake": "08:31:59", "dur": 18981}, {"date": "2026-04-10", "wake": "14:40:20", "dur": 16711}, {"date": "2026-04-11", "wake": "10:15:29", "dur": 6326}, {"date": "2026-04-11", "wake": "12:33:55", "dur": 5411}, {"date": "2026-04-11", "wake": "14:43:06", "dur": 5870}, {"date": "2026-04-12", "wake": "09:49:50", "dur": 8217}, {"date": "2026-04-12", "wake": "13:14:47", "dur": 4819}, {"date": "2026-04-13", "wake": "09:53:37", "dur": 7525}, {"date": "2026-04-13", "wake": "13:38:02", "dur": 6868}, {"date": "2026-04-13", "wake": "16:06:30", "dur": 6459}, {"date": "2026-04-14", "wake": "10:29:59", "dur": 7709}, {"date": "2026-04-14", "wake": "13:17:28", "dur": 9408}, {"date": "2026-04-14", "wake": "16:39:16", "dur": 8367}, {"date": "2026-04-14", "wake": "20:02:43", "dur": 7283}, {"date": "2026-04-15", "wake": "10:45:58", "dur": 8660}, {"date": "2026-04-15", "wake": "14:13:18", "dur": 6157}, {"date": "2026-04-15", "wake": "17:34:55", "dur": 6595}, {"date": "2026-04-16", "wake": "08:32:37", "dur": 16629}, {"date": "2026-04-16", "wake": "13:36:46", "dur": 17512}, {"date": "2026-04-17", "wake": "08:26:55", "dur": 4685}, {"date": "2026-04-17", "wake": "10:19:00", "dur": 2016}, {"date": "2026-04-17", "wake": "12:07:36", "dur": 5658}, {"date": "2026-04-17", "wake": "14:29:54", "dur": 2857}, {"date": "2026-04-18", "wake": "07:54:21", "dur": 6019}, {"date": "2026-04-18", "wake": "11:15:40", "dur": 5483}, {"date": "2026-04-18", "wake": "14:10:03", "dur": 2661}, {"date": "2026-04-18", "wake": "15:49:24", "dur": 3149}, {"date": "2026-04-19", "wake": "07:39:04", "dur": 6908}, {"date": "2026-04-19", "wake": "11:09:12", "dur": 9170}, {"date": "2026-04-19", "wake": "14:33:02", "dur": 7164}, {"date": "2026-04-20", "wake": "07:28:10", "dur": 6171}, {"date": "2026-04-20", "wake": "10:04:01", "dur": 3100}, {"date": "2026-04-20", "wake": "11:15:41", "dur": 5151}, {"date": "2026-04-20", "wake": "14:37:32", "dur": 6095}], "hostname": "myhost", "collected": "2026-04-20 15:30:00", "generated": "2026-04-20 04:30:22"}/**/;
+
+// ── File handling ──────────────────────────────────────────────────
+function handleFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    render(parseCSV(ev.target.result));
+  };
+  reader.readAsText(file);
+}
+
+// ── Auto-load inline data if present ──────────────────────────────
+if (INLINE_DATA) {
+  // Inline rows use {date, wake, dur} — same shape as parseCSV output
+  render(INLINE_DATA);
+}
+</script>
+</body>
+</html>
