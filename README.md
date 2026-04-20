@@ -69,7 +69,7 @@ The HTML report is written next to the CSV (e.g. `/path/to/screentime-log-report
 
 The text report includes:
 
-- **Today** — total active time with individual sessions
+- **Today** — total active time and sleep time with individual sessions
 - **Last 7 days** — daily totals with per-active-day average
 - **Complete weeks (Mon–Sun)** — total, avg, min, median, max per week; color-coded with red for the 3 worst weeks (most screen time) and green for the 3 best
 - **Monthly statistics** — same stats per month, current month first
@@ -78,7 +78,7 @@ Sample output (generated from `test/sample-screentime-log.csv`):
 
 ```
 ====================================================
-  SCREEN TIME REPORT
+  SCREEN TIME REPORT  v1.0
 ====================================================
 
 📅 TODAY (Monday, 20 Apr 2026)
@@ -87,6 +87,11 @@ Sample output (generated from `test/sample-screentime-log.csv`):
      10:04:01 - 10:55:41  (0h 51m)
      11:15:41 - 12:41:32  (1h 25m)
      14:37:32 - 16:19:07  (1h 41m)
+   Sleep time:  10h 37m
+     00:00:00 - 07:28:10  (7h 28m)
+     09:11:01 - 10:04:01  (0h 53m)
+     10:55:41 - 11:15:41  (0h 20m)
+     12:41:32 - 14:37:32  (1h 56m)
 
 📊 LAST 7 DAYS
    Tue 14       9h 06m
@@ -151,12 +156,13 @@ Data collection covers the current month plus the 3 preceding full months (e.g. 
 ```
 # hostname: p1gen7
 # collected: 2026-04-20 14:32:00
-date,wake_time,sleep_time,duration_seconds
-2026-04-13,09:04:19,2026-04-15 09:41:06,175007
-2026-04-15,10:22:19,2026-04-15 18:47:41,30322
+date,start_time,end_time,duration_seconds,type
+2026-04-13,09:04:19,2026-04-13 22:30:00,48341,wake
+2026-04-13,22:30:00,2026-04-14 07:59:24,34164,sleep
+2026-04-14,07:59:24,2026-04-14 22:27:16,52072,wake
 ```
 
-Each row is one continuous active session. Sessions spanning midnight are stored with full wake/sleep datetimes — both the terminal report and dashboard split them correctly per day.
+Each row is one session. The `type` column is `wake` (active screen time) or `sleep` (machine suspended). Sessions spanning midnight are stored with full start/end datetimes — both the terminal report and dashboard split them correctly per day.
 
 ## Adapting to other distributions
 
