@@ -1,8 +1,9 @@
 #!/bin/bash
 # =============================================================================
-# screentime-tracker.sh — Fedora 42
+# screentime-tracker.sh
 # =============================================================================
 
+VERSION="1.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_FILE="$SCRIPT_DIR/screentime-log.csv"
 TEMPLATE="$SCRIPT_DIR/screentime-dashboard.html"
@@ -10,6 +11,8 @@ REPORT="$SCRIPT_DIR/screentime-report.html"
 
 usage() {
     cat <<EOF
+screentime-tracker v$VERSION
+
 Usage: $0 [OPTIONS] [CSV_FILE]
 
 Generate and display screen time reports from systemd journal data.
@@ -27,18 +30,18 @@ EOF
 }
 
 rebuild_log() {
-    python3 - "$LOG_FILE" "$TEMPLATE" "$REPORT" <<'PYEOF'
+    python3 - "$LOG_FILE" "$TEMPLATE" "$REPORT" "$VERSION" <<'PYEOF'
 import subprocess, sys, re, json, socket, os
 from datetime import datetime, timedelta, date
 
-log_file, template_path, report_path = sys.argv[1], sys.argv[2], sys.argv[3]
+log_file, template_path, report_path, version = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 now = datetime.now()
 current_year = now.year
 
 # 1. Boot times
 boots = []
 try:
-    r = subprocess.run(["last", "reboot", "-F"], capture_output=True, text=True)
+    r = subprocess.run(["last", "reboot", "-F"], capture_output=True, text=True, env={**os.environ, 'LANG': 'C'})
     for line in r.stdout.splitlines():
         m = re.search(r'system boot\s+\S+\s+(\w{3}\s+\w{3}\s+\d+\s+\d+:\d+:\d+\s+\d{4})', line)
         if m:
@@ -57,8 +60,9 @@ since_date = date(since_year, since_month, 1)
 cmd = ["journalctl", "--since", since_date.isoformat(), "--no-pager", "-q",
        "--output", "short", "-g",
        "The system will suspend now|System returned from sleep operation"]
+env = {**os.environ, 'LANG': 'C'}
 try:
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=env)
     lines = result.stdout.splitlines()
 except:
     lines = []
@@ -111,6 +115,15 @@ for dt, etype in events:
 if last_wake is not None and (now - last_wake).total_seconds() > 30:
     sessions.append((last_wake, now))
 
+# 3b. Build sleep sessions (gaps between wake sessions)
+all_sessions = [(w, s, 'wake') for w, s in sessions]
+for i in range(len(sessions) - 1):
+    gap_start = sessions[i][1]
+    gap_end = sessions[i+1][0]
+    if (gap_end - gap_start).total_seconds() > 30:
+        all_sessions.append((gap_start, gap_end, 'sleep'))
+all_sessions.sort(key=lambda x: x[0])
+
 # 4. Write CSV
 hostname  = socket.gethostname()
 collected = now.strftime('%Y-%m-%d %H:%M:%S')
@@ -118,25 +131,27 @@ collected = now.strftime('%Y-%m-%d %H:%M:%S')
 with open(log_file, 'w') as f:
     f.write(f"# hostname: {hostname}\n")
     f.write(f"# collected: {collected}\n")
-    f.write("date,wake_time,sleep_time,duration_seconds\n")
-    for wake, sleep in sessions:
-        dur = int((sleep - wake).total_seconds())
-        f.write(f"{wake.strftime('%Y-%m-%d')},{wake.strftime('%H:%M:%S')},{sleep.strftime('%Y-%m-%d %H:%M:%S')},{dur}\n")
+    f.write("date,start_time,end_time,duration_seconds,type\n")
+    for start, end, stype in all_sessions:
+        dur = int((end - start).total_seconds())
+        f.write(f"{start.strftime('%Y-%m-%d')},{start.strftime('%H:%M:%S')},{end.strftime('%Y-%m-%d %H:%M:%S')},{dur},{stype}\n")
 
-print(f"Done. {len(sessions)} sessions written to {log_file}")
-if sessions:
-    print(f"Date range: {sessions[0][0].strftime('%Y-%m-%d')} -> {sessions[-1][1].strftime('%Y-%m-%d')}")
+wake_count = sum(1 for _, _, t in all_sessions if t == 'wake')
+sleep_count = sum(1 for _, _, t in all_sessions if t == 'sleep')
+print(f"Done. {wake_count} wake + {sleep_count} sleep sessions written to {log_file}")
+if all_sessions:
+    print(f"Date range: {all_sessions[0][0].strftime('%Y-%m-%d')} -> {all_sessions[-1][1].strftime('%Y-%m-%d')}")
 
 # 5. Generate self-contained HTML
 if not os.path.exists(template_path):
     print(f"Warning: {template_path} not found, skipping HTML generation.")
 else:
     rows = []
-    for wake, sleep in sessions:
-        dur = int((sleep - wake).total_seconds())
-        rows.append({'date': wake.strftime('%Y-%m-%d'), 'wake': wake.strftime('%H:%M:%S'), 'dur': dur})
+    for start, end, stype in all_sessions:
+        dur = int((end - start).total_seconds())
+        rows.append({'date': start.strftime('%Y-%m-%d'), 'wake': start.strftime('%H:%M:%S'), 'dur': dur, 'type': stype})
     generated = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    inline = {'rows': rows, 'hostname': hostname, 'collected': collected, 'generated': generated}
+    inline = {'rows': rows, 'hostname': hostname, 'collected': collected, 'generated': generated, 'version': version}
     with open(template_path) as f:
         html = f.read()
     html = html.replace('/*__INLINE_DATA__*/null/**/', f'/*__INLINE_DATA__*/{json.dumps(inline)}/**/')
@@ -148,19 +163,22 @@ PYEOF
 }
 
 show_report() {
-    python3 - "$LOG_FILE" <<'PYEOF'
+    python3 - "$LOG_FILE" "$VERSION" <<'PYEOF'
 import sys, csv
 from datetime import datetime, timedelta, date
 import calendar
 
 log_file = sys.argv[1]
+version = sys.argv[2]
 
 def fmt(secs):
     secs = max(0, int(secs))
     return f"{secs//3600}h {(secs%3600)//60:02d}m"
 
 day_totals = {}
+day_sleep = {}
 today_sessions = []
+today_sleep_sessions = []
 
 try:
     with open(log_file, newline='') as f:
@@ -168,25 +186,31 @@ try:
         lines = [l for l in f if not l.startswith('#')]
     for row in csv.DictReader(lines):
         try:
-            wake = datetime.strptime(f"{row['date']} {row['wake_time']}", "%Y-%m-%d %H:%M:%S")
-            sleep_str = row['sleep_time'].strip()
-            if len(sleep_str) > 8:
-                sleep = datetime.strptime(sleep_str, "%Y-%m-%d %H:%M:%S")
+            row_type = row.get('type', 'wake')
+            start = datetime.strptime(f"{row['date']} {row['start_time']}", "%Y-%m-%d %H:%M:%S")
+            end_str = row['end_time'].strip()
+            if len(end_str) > 8:
+                end = datetime.strptime(end_str, "%Y-%m-%d %H:%M:%S")
             else:
-                sleep = datetime.strptime(f"{row['date']} {sleep_str}", "%Y-%m-%d %H:%M:%S")
+                end = datetime.strptime(f"{row['date']} {end_str}", "%Y-%m-%d %H:%M:%S")
         except: continue
 
-        cur = wake
+        cur = start
         while True:
             midnight = datetime(cur.year, cur.month, cur.day) + timedelta(days=1)
-            end = min(sleep, midnight)
-            secs = (end - cur).total_seconds()
+            seg_end = min(end, midnight)
+            secs = (seg_end - cur).total_seconds()
             if secs > 0:
                 ds = cur.strftime('%Y-%m-%d')
-                day_totals[ds] = day_totals.get(ds, 0) + secs
-                if ds == date.today().isoformat():
-                    today_sessions.append((cur.strftime('%H:%M:%S'), end.strftime('%H:%M:%S'), int(secs)))
-            if sleep <= midnight:
+                if row_type == 'wake':
+                    day_totals[ds] = day_totals.get(ds, 0) + secs
+                    if ds == date.today().isoformat():
+                        today_sessions.append((cur.strftime('%H:%M:%S'), seg_end.strftime('%H:%M:%S'), int(secs)))
+                else:
+                    day_sleep[ds] = day_sleep.get(ds, 0) + secs
+                    if ds == date.today().isoformat():
+                        today_sleep_sessions.append((cur.strftime('%H:%M:%S'), seg_end.strftime('%H:%M:%S'), int(secs)))
+            if end <= midnight:
                 break
             cur = midnight
 
@@ -198,11 +222,14 @@ except FileNotFoundError:
 today = date.today()
 
 print("=" * 52)
-print("  SCREEN TIME REPORT")
+print(f"  SCREEN TIME REPORT  v{version}")
 print("=" * 52)
 print(f"\n📅 TODAY ({today.strftime('%A, %d %b %Y')})")
 print(f"   Active time: {fmt(day_totals.get(today.isoformat(), 0))}")
 for w, s, d in today_sessions:
+    print(f"     {w} - {s}  ({fmt(d)})")
+print(f"   Sleep time:  {fmt(day_sleep.get(today.isoformat(), 0))}")
+for w, s, d in today_sleep_sessions:
     print(f"     {w} - {s}  ({fmt(d)})")
 
 print(f"\n📊 LAST 7 DAYS")
@@ -305,11 +332,11 @@ PYEOF
 }
 
 generate_html() {
-    python3 - "$LOG_FILE" "$TEMPLATE" "$REPORT" <<'PYEOF'
+    python3 - "$LOG_FILE" "$TEMPLATE" "$REPORT" "$VERSION" <<'PYEOF'
 import sys, csv, json, os
 from datetime import datetime
 
-log_file, template_path, report_path = sys.argv[1], sys.argv[2], sys.argv[3]
+log_file, template_path, report_path, version = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 
 if not os.path.exists(template_path):
     print(f"Warning: {template_path} not found, skipping HTML generation.")
@@ -332,12 +359,12 @@ with open(log_file, newline='') as f:
         try:
             dur = int(row['duration_seconds'])
             if dur > 0:
-                rows.append({'date': row['date'], 'wake': row['wake_time'], 'dur': dur})
+                rows.append({'date': row['date'], 'wake': row['start_time'], 'dur': dur, 'type': row.get('type', 'wake')})
         except:
             continue
 
 generated = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-inline = {'rows': rows, 'hostname': hostname, 'collected': collected, 'generated': generated}
+inline = {'rows': rows, 'hostname': hostname, 'collected': collected, 'generated': generated, 'version': version}
 with open(template_path) as f:
     html = f.read()
 html = html.replace('/*__INLINE_DATA__*/null/**/', f'/*__INLINE_DATA__*/{json.dumps(inline)}/**/')

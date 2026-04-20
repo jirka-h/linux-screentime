@@ -49,15 +49,24 @@ while d <= end:
 
     d += timedelta(days=1)
 
+all_sessions = [(wake, dur, 'wake') for wake, dur in sessions]
+for i in range(len(sessions) - 1):
+    gap_start = sessions[i][0] + timedelta(seconds=sessions[i][1])
+    gap_end = sessions[i + 1][0]
+    gap_secs = int((gap_end - gap_start).total_seconds())
+    if gap_secs > 30:
+        all_sessions.append((gap_start, gap_secs, 'sleep'))
+all_sessions.sort(key=lambda x: x[0])
+
 lines = []
 lines.append(f"# hostname: {hostname}")
 lines.append(f"# collected: {now.strftime('%Y-%m-%d %H:%M:%S')}")
-lines.append("date,wake_time,sleep_time,duration_seconds")
-for wake, dur in sessions:
-    sleep = wake + timedelta(seconds=dur)
+lines.append("date,start_time,end_time,duration_seconds,type")
+for start, dur, stype in all_sessions:
+    end = start + timedelta(seconds=dur)
     lines.append(
-        f"{wake.strftime('%Y-%m-%d')},{wake.strftime('%H:%M:%S')},"
-        f"{sleep.strftime('%Y-%m-%d %H:%M:%S')},{dur}"
+        f"{start.strftime('%Y-%m-%d')},{start.strftime('%H:%M:%S')},"
+        f"{end.strftime('%Y-%m-%d %H:%M:%S')},{dur},{stype}"
     )
 
 import os
@@ -65,4 +74,6 @@ outpath = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sample-scree
 with open(outpath, "w") as f:
     f.write("\n".join(lines) + "\n")
 
-print(f"{len(sessions)} sessions written to {outpath}")
+wake_count = sum(1 for _, _, t in all_sessions if t == 'wake')
+sleep_count = sum(1 for _, _, t in all_sessions if t == 'sleep')
+print(f"{wake_count} wake + {sleep_count} sleep sessions written to {outpath}")
