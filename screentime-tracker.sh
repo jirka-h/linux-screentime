@@ -3,6 +3,7 @@
 # screentime-tracker.sh
 # =============================================================================
 
+export LANG=C
 VERSION="1.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_FILE="$SCRIPT_DIR/screentime-log.csv"
@@ -38,16 +39,62 @@ log_file, template_path, report_path, version = sys.argv[1], sys.argv[2], sys.ar
 now = datetime.now()
 current_year = now.year
 
-# 1. Boot times
+# 1. Boot times from multiple sources
 boots = []
+env = {**os.environ, 'LANG': 'C'}
+
+# 1a. Try 'last reboot -F', fall back to 'wtmpdb last reboot'
 try:
-    r = subprocess.run(["last", "reboot", "-F"], capture_output=True, text=True, env={**os.environ, 'LANG': 'C'})
+    r = subprocess.run(["last", "reboot", "-F"], capture_output=True, text=True, env=env)
     for line in r.stdout.splitlines():
         m = re.search(r'system boot\s+\S+\s+(\w{3}\s+\w{3}\s+\d+\s+\d+:\d+:\d+\s+\d{4})', line)
         if m:
             try:
                 boots.append(datetime.strptime(m.group(1).strip(), "%a %b %d %H:%M:%S %Y"))
             except: pass
+except FileNotFoundError:
+    try:
+        r = subprocess.run(["wtmpdb", "last", "reboot"], capture_output=True, text=True, env=env)
+        for line in r.stdout.splitlines():
+            if 'reboot' not in line.lower(): continue
+            m = re.search(r'(\w{3}\s+\w{3}\s+\d+\s+\d+:\d+:\d+\s+\d{4})', line)
+            if m:
+                try:
+                    boots.append(datetime.strptime(m.group(1).strip(), "%a %b %d %H:%M:%S %Y"))
+                except: pass
+    except FileNotFoundError:
+        print("Note: 'last' not found. On Ubuntu/Debian: sudo apt install util-linux-extra", file=sys.stderr)
+except Exception: pass
+
+# 1b. journalctl --list-boots (boot start + end times)
+boot_ends = []
+try:
+    r = subprocess.run(["journalctl", "--list-boots", "--no-pager"],
+                       capture_output=True, text=True, env=env)
+    for line in r.stdout.splitlines():
+        matches = re.findall(r'(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})', line)
+        if matches:
+            try:
+                bt = datetime.strptime(f"{matches[0][0]} {matches[0][1]}", "%Y-%m-%d %H:%M:%S")
+                if not any(abs((bt - b).total_seconds()) < 60 for b in boots):
+                    boots.append(bt)
+            except: pass
+        if len(matches) >= 2:
+            try:
+                et = datetime.strptime(f"{matches[1][0]} {matches[1][1]}", "%Y-%m-%d %H:%M:%S")
+                if (now - et).total_seconds() > 300:
+                    boot_ends.append(et)
+            except: pass
+except: pass
+
+# 1c. 'who -b' as fallback for current boot time
+try:
+    r = subprocess.run(["who", "-b"], capture_output=True, text=True, env=env)
+    m = re.search(r'(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})', r.stdout)
+    if m:
+        bt = datetime.strptime(f"{m.group(1)} {m.group(2)}", "%Y-%m-%d %H:%M")
+        if not any(abs((bt - b).total_seconds()) < 120 for b in boots):
+            boots.append(bt)
 except: pass
 
 # 2. Journal events
@@ -57,17 +104,22 @@ if since_month < 1:
     since_month += 12
     since_year -= 1
 since_date = date(since_year, since_month, 1)
+if boots:
+    earliest = min(boots).date()
+    limit = (now - timedelta(days=365)).date()
+    if earliest >= limit and earliest < since_date:
+        since_date = date(earliest.year, earliest.month, 1)
+
 cmd = ["journalctl", "--since", since_date.isoformat(), "--no-pager", "-q",
-       "--output", "short", "-g",
-       "The system will suspend now|System returned from sleep operation"]
-env = {**os.environ, 'LANG': 'C'}
+       "--output", "short-iso",
+       "-t", "systemd-sleep", "-t", "systemd-logind"]
 try:
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=env)
     lines = result.stdout.splitlines()
 except:
     lines = []
 
-LINE_RE = re.compile(r'^(\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2})\s+\S+\s+(.+)$')
+LINE_RE = re.compile(r'^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\S*)\s+\S+\s+(.+)$')
 events = []
 
 for line in lines:
@@ -75,38 +127,55 @@ for line in lines:
     if not m: continue
     ts_str, rest = m.group(1), m.group(2)
     try:
-        dt = datetime.strptime(f"{ts_str} {current_year}", "%b %d %H:%M:%S %Y")
-        if dt > now + timedelta(days=1):
-            dt = datetime.strptime(f"{ts_str} {current_year-1}", "%b %d %H:%M:%S %Y")
+        dt = datetime.strptime(ts_str[:19], "%Y-%m-%dT%H:%M:%S")
     except: continue
-    if "will suspend now" in rest:
+    if ("will suspend now" in rest or "Entering sleep state" in rest or
+        "Suspending system" in rest or "Performing sleep operation" in rest):
         events.append((dt, 'suspend'))
-    elif "returned from sleep" in rest:
+    elif "returned from sleep" in rest or "System resumed" in rest:
         events.append((dt, 'resume'))
+    elif ("System is powering off" in rest or "System is powering down" in rest or
+          "System is rebooting" in rest or "System is halting" in rest or
+          "will power off" in rest or "will reboot" in rest):
+        events.append((dt, 'shutdown'))
 
+for e in boot_ends:
+    events.append((e, 'shutdown'))
 for b in boots:
     events.append((b, 'resume'))
 
 events.sort(key=lambda x: x[0])
 
+# Deduplicate consecutive same-type events within 60s
+deduped = []
+for dt, etype in events:
+    if deduped and etype == deduped[-1][1] and abs((dt - deduped[-1][0]).total_seconds()) < 60:
+        continue
+    deduped.append((dt, etype))
+events = deduped
+
 # 3. Build sessions
-since = datetime(since_year, since_month, 1)
+since = datetime(since_date.year, since_date.month, since_date.day)
 sessions = []
 last_wake = None
 
 window_events = [(dt, et) for dt, et in events if dt >= since]
-if window_events and window_events[0][1] == 'suspend':
+if window_events and window_events[0][1] in ('suspend', 'shutdown'):
     last_wake = since
 
 for dt, etype in events:
     if dt < since:
         if etype == 'resume': last_wake = dt
-        elif etype == 'suspend': last_wake = None
+        elif etype in ('suspend', 'shutdown'): last_wake = None
         continue
     if etype == 'resume':
-        if last_wake is None:
+        if last_wake is not None:
+            if (dt - last_wake).total_seconds() > 300:
+                sessions.append((last_wake, dt))
+                last_wake = dt
+        else:
             last_wake = dt
-    elif etype == 'suspend':
+    elif etype in ('suspend', 'shutdown'):
         if last_wake is not None:
             if (dt - last_wake).total_seconds() > 30:
                 sessions.append((last_wake, dt))
@@ -164,9 +233,10 @@ PYEOF
 
 show_report() {
     python3 - "$LOG_FILE" "$VERSION" <<'PYEOF'
-import sys, csv
+import sys, csv, locale
 from datetime import datetime, timedelta, date
 import calendar
+locale.setlocale(locale.LC_ALL, 'C')
 
 log_file = sys.argv[1]
 version = sys.argv[2]
@@ -286,7 +356,7 @@ if weeks:
         mn     = active_secs[0]  if active_secs else 0
         mx     = active_secs[-1] if active_secs else 0
         mid    = len(active_secs) // 2
-        median = active_secs[mid] if active_count % 2 else (active_secs[mid-1] + active_secs[mid]) // 2
+        median = 0 if not active_secs else (active_secs[mid] if active_count % 2 else (active_secs[mid-1] + active_secs[mid]) // 2)
         label  = f"{w_start.day}.{w_start.month}. – {w_end.day}.{w_end.month}."
         ratio  = f"({active_count}/7)"
         line   = f"   {label:<18} {fmt(w_secs):>9}  avg {fmt(avg):>7}/day  {ratio:>7}  min {fmt(mn):>7}  med {fmt(median):>7}  max {fmt(mx):>7}"
@@ -323,7 +393,7 @@ for (y, m) in sorted(month_data, reverse=True):
     mn     = active[0]  if active else 0
     mx     = active[-1] if active else 0
     mid    = len(active) // 2
-    median = active[mid] if active_count % 2 else (active[mid-1] + active[mid]) // 2
+    median = 0 if not active else (active[mid] if active_count % 2 else (active[mid-1] + active[mid]) // 2)
     ratio = f"({active_count}/{days_in_window})"
     print(f"   {name:<18} {fmt(info['total']):>9}  avg {fmt(avg):>7}/day  {ratio:>7}  min {fmt(mn):>7}  med {fmt(median):>7}  max {fmt(mx):>7}")
 
@@ -374,6 +444,36 @@ print(f"Dashboard: {report_path}")
 PYEOF
 }
 
+check_deps() {
+    local fail=0
+    if ! command -v python3 &>/dev/null; then
+        echo "ERROR: 'python3' is required but not found." >&2
+        if [ -f /etc/debian_version ]; then
+            echo "  Install with: sudo apt install python3" >&2
+        elif [ -f /etc/redhat-release ]; then
+            echo "  Install with: sudo dnf install python3" >&2
+        fi
+        fail=1
+    fi
+    if ! command -v journalctl &>/dev/null; then
+        echo "ERROR: 'journalctl' is required but not found (systemd not available?)." >&2
+        fail=1
+    fi
+    if [ $fail -ne 0 ]; then
+        exit 1
+    fi
+    if ! command -v last &>/dev/null; then
+        echo "WARNING: 'last' command not found — boot/shutdown history unavailable." >&2
+        echo "  Results will be unreliable without it." >&2
+        if [ -f /etc/debian_version ]; then
+            echo "  Install with: sudo apt install util-linux-extra" >&2
+        else
+            echo "  Install the package that provides 'last' for your distribution." >&2
+        fi
+        echo "" >&2
+    fi
+}
+
 ACTION="all"
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -394,6 +494,7 @@ done
 
 case "$ACTION" in
     report)
+        check_deps
         if [ ! -f "$LOG_FILE" ]; then
             echo "No CSV found at $LOG_FILE" >&2
             exit 1
@@ -402,6 +503,7 @@ case "$ACTION" in
         generate_html
         ;;
     all)
+        check_deps
         echo "Reading systemd journal..."
         rebuild_log
         show_report

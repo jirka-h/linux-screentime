@@ -568,12 +568,12 @@ function render({ rows, hostname, collected, generated, version }) {
     const pct = Math.max((secs / maxWeek) * 100, secs > 0 ? 4 : 1);
     const isToday = d === td;
     const isSunday = new Date(d+'T12:00:00').getDay() === 0;
-    const label = isToday ? 'today' : new Date(d+'T12:00:00').toLocaleDateString('en-GB',{weekday:'short'}).slice(0,2);
+    const label = isToday ? 'today' : new Date(d+'T12:00:00').toLocaleDateString('en-GB',{weekday:'short'}).slice(0,3);
     const color = isToday ? 'var(--accent)' : isSunday ? 'var(--accent2)' : 'var(--accent3)';
     return `
       <div class="bar-wrap">
         <div class="bar-area">
-          <div class="bar" style="height:${pct}%;background:${color};opacity:${secs>0?1:0.15}">
+          <div class="bar" style="height:${pct}%;background:${color}">
             <div class="bar-value" style="color:${isToday?'var(--accent)':'var(--text)'}">${fmtDur(secs)}</div>
           </div>
         </div>
